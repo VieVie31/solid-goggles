@@ -1,0 +1,203 @@
+<html>
+    <head>
+        <title>Active Learning Image Labels Cleaning</title>
+        <script src='http://localhost:8888/help/?lib=js'></script>
+        <style>
+            table,
+            td {
+                border: 1px solid #333;
+                text-align: center;
+            }
+
+            thead,
+            tfoot {
+                background-color: #333;
+                color: #fff;
+            }
+
+            img {
+                max-width: 128px;
+            }
+
+            .zoom { 
+                transition: transform .2s; /* Animation */
+                margin: 0 auto;
+            }
+
+            .zoom:hover {
+                transform: scale(2); /*1.5); /* (150% zoom - Note: if the zoom is too large, it will go outside of the viewport) */
+                background-color: green;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>Active Learning Image Labels Cleaning</h1>
+        
+        <div id="hover" style="z-index: 999; display: none; position: absolute; top: 10%; left: 30%; padding: 10px; background-color: aquamarine;">
+            <img style="width: 30%;"/>
+        </div>
+
+
+        <nav style="position: fixed; right: 0; margin-left: 10px; margin-top: 10px; margin-right: 5px; margin-bottom: 10px; background-color: cadetblue;">
+            <ul>
+                <li><button onclick="load_table();">Reload Table</button></li>
+                <li><button onclick="refine_model();">Reffine Model</button></li>
+                <li><button onclick="download_positives();">Download Positives Images Ids</button></li>
+            </ul>
+        </nav>
+
+        <table style="margin-left: 10%;">
+            <thead>
+                <tr>
+                    <th colspan="6">Data</th>
+                </tr>
+                <tr>
+                    <td>Image</td>
+                    <td onclick="sortTable(1);">Image Id</td>
+                    <td onclick="sortTable(2);">User Label</td>
+                    <td onclick="sortTable(3);">Model Label</td>
+                    <td onclick="sortTable(4);">Model Confidence</td>
+                    <td>Set Label</td>
+                    <!-- <td>Exclude</td> <!-- for positives we do not want to learn from nor keep in the dataset (without labeling them as wrong)… -->
+                </tr>
+            </thead>
+            <tbody>
+                <!-- <tr>
+                    <td><img class="zoom" src="http://localhost:8888/get_image?image_id=9"></td>
+                    <td>0</td>
+                    <td>Model Label</td>
+                    <td>Model Confidence</td>
+                    <td><button onclick="">Set Positive</button></td>
+                </tr> -->
+                <button onclick="load_table();">Load Table</button>
+            </tbody>
+        </table>
+
+        <script>
+            async function refine_model() {
+                await bonapity_api.refine_learning();
+                load_table();
+            }
+
+            async function set_positive_or_negative(img_id, value) {
+                is_changed = await bonapity_api.set_label(img_id, value);
+                if (is_changed === true) {
+                    new_button_innerHTML = `<button onclick="set_positive_or_negative(` + img_id + ', ' + (value * -1) +  `)">Set ` + (value == 1 ? "Negative" : "Positive") + `</button>`
+                    document.getElementById("set_" + img_id).innerHTML = new_button_innerHTML;
+                    document.getElementById("usr_" + img_id).innerHTML = value;
+                } else {
+                    alert("error : " + is_changed);
+                }
+            }
+
+            function create_row(img_id, user_lbl, model_lbl, cfd_lbl) {
+                if (user_lbl == 0)
+                    set_button_txt = (model_lbl == 1 ? "Negative" : "Positive");
+                else
+                    set_button_txt = (user_lbl == 1 ? "Negative" : "Positive");
+                
+                row = `<tr>
+                    <td><img class="zoom" src="http://localhost:8888/get_image?image_id=` + img_id + `"></td>
+                    <td>` + img_id + `</td>
+                    <td id="usr_` + img_id + `">` +  user_lbl + `</td>
+                    <td>` + model_lbl + `</td>
+                    <td>` +  cfd_lbl + `</td>
+                    <td id="set_` + img_id + `"><button onclick="set_positive_or_negative(` + img_id + ', ' + (set_button_txt == "Positive" ? 1 : -1) + `)">Set ` + set_button_txt + `</button></td> 
+                </tr>` //TODO: onclick
+                return row
+            }
+
+            async function load_table() {
+                // the list of ids (<!> keep always the same order <!>)
+                ids = await bonapity_api.get_ids();
+                model_labels = await bonapity_api.get_model_labels();
+                cfd_labels = await bonapity_api.get_model_confidence();
+                user_labels = await bonapity_api.get_user_labels();
+
+
+                // reset the table content
+                s = ""
+                for (i = 0; i < ids.length; i++) {
+                    s += create_row(ids[i], user_labels[i], model_labels[i], cfd_labels[i]) + '\n';
+                }
+
+                document.getElementsByTagName("tbody")[0].innerHTML = s;
+
+            }
+            
+            async function download_positives() {
+                s = await bonapity_api.dowload_list_to_keep();
+                downloadString(s,'csv', 'positives.csv');
+            }
+
+            function downloadString(text, fileType, fileName) {
+                var blob = new Blob([text], { type: fileType });
+                var a = document.createElement('a');
+                a.download = fileName;
+                a.href = URL.createObjectURL(blob);
+                a.dataset.downloadurl = [fileType, a.download, a.href].join(':');
+                a.style.display = "none";
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                setTimeout(function() { URL.revokeObjectURL(a.href); }, 1500);
+            }
+
+
+            function sortTable(n) {
+                var table, rows, switching, i, x, y, shouldSwitch, dir, switchcount = 0;
+                table = document.getElementsByTagName("tbody")[0];
+                switching = true;
+                // Set the sorting direction to ascending:
+                dir = "asc"; 
+                /* Make a loop that will continue until
+                no switching has been done: */
+                while (switching) {
+                    // Start by saying: no switching is done:
+                    switching = false;
+                    rows = table.rows;
+                    /* Loop through all table rows (except the
+                    first, which contains table headers): */
+                    for (i = 0; i < (rows.length - 1); i++) {
+                    // Start by saying there should be no switching:
+                    shouldSwitch = false;
+                    /* Get the two elements you want to compare,
+                    one from current row and one from the next: */
+                    x = rows[i].getElementsByTagName("TD")[n];
+                    y = rows[i + 1].getElementsByTagName("TD")[n];
+                    /* Check if the two rows should switch place,
+                    based on the direction, asc or desc: */
+                    if (dir == "asc") {
+                        if (x.innerHTML.toLowerCase() > y.innerHTML.toLowerCase()) {
+                        // If so, mark as a switch and break the loop:
+                        shouldSwitch = true;
+                        break;
+                        }
+                    } else if (dir == "desc") {
+                        if (x.innerHTML.toLowerCase() < y.innerHTML.toLowerCase()) {
+                        // If so, mark as a switch and break the loop:
+                        shouldSwitch = true;
+                        break;
+                        }
+                    }
+                    }
+                    if (shouldSwitch) {
+                    /* If a switch has been marked, make the switch
+                    and mark that a switch has been done: */
+                    rows[i].parentNode.insertBefore(rows[i + 1], rows[i]);
+                    switching = true;
+                    // Each time a switch is done, increase this count by 1:
+                    switchcount ++; 
+                    } else {
+                    /* If no switching has been done AND the direction is "asc",
+                    set the direction to "desc" and run the while loop again. */
+                    if (switchcount == 0 && dir == "asc") {
+                        dir = "desc";
+                        switching = true;
+                    }
+                    }
+                }
+            }
+        </script>
+    </body>
+</html>
