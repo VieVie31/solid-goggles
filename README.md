@@ -3,7 +3,7 @@
 The aim of this project is to provide a simple interface to clean images annotations for a given label.
 
 The images should be putted in `images/` with a `.jpg` extension.
-The features corresponding to each image should be putted in `features/` with the same name and with the `.npy` extension (numpy).
+The features corresponding to each image should be putted in `features/` with the same name and with the `.feat` extension (the format shoud be a simple numpy vector containing floats…).
 
 The interface is a web interface with backend powered by `bonapity`.
 
